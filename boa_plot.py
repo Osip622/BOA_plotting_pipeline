@@ -39,7 +39,6 @@ def plot_sweep(
         r for r in results
         if r["param_name"] == param_name
         and r["metrics"].get("ratio_excl_model") is not None
-        and r["metrics"].get("compress_mbps") is not None
     ]
     if not sweep_results:
         print(f"No complete results for '{param_name}'.")

@@ -23,13 +23,17 @@ def _safe(values: list, default: float = 0.0) -> list:
     """Replace None with default so matplotlib doesn't crash."""
     return [v if v is not None else default for v in values]
 
+def _try_int_label(v) -> str:
+    try:
+        return str(int(v)) if float(v).is_integer() else str(v)
+    except (TypeError, ValueError):
+        return str(v)
 
 def _extract(sweep_results: list) -> dict:
     """Pull all metric lists out of sweep_results in one place."""
     return {
         "values":          [r["param_value"]                           for r in sweep_results],
-        "labels":          [str(int(r["param_value"])) if float(r["param_value"]).is_integer()
-                            else str(r["param_value"])                 for r in sweep_results],
+        "labels":          [_try_int_label(r["param_value"]) for r in sweep_results],
         "ratios":          [r["metrics"].get("ratio_excl_model")       for r in sweep_results],
         "ratios_incl":          [r["metrics"].get("ratio_incl_model")       for r in sweep_results],
         "compress_mbps":   [r["metrics"].get("compress_mbps")          for r in sweep_results],
@@ -126,7 +130,7 @@ def plot_quality_speed_tradeoff(ax, sweep_results, param_name):
         rs, dvs, vs = zip(*valid)
         scatter = ax.scatter(dvs, rs, c=range(len(rs)), cmap="viridis", s=120, zorder=5)
         for r, dv, v in zip(rs, dvs, vs):
-            label = str(int(v)) if float(v).is_integer() else str(v)
+            label = _try_int_label(v)
             ax.annotate(f"n={label}", (dv, r),
                         textcoords="offset points", xytext=(6, 4), fontsize=9)
         ax.axhline(1.0, color="gray", linestyle="--", linewidth=1, alpha=0.5)
@@ -179,6 +183,46 @@ def plot_training_time(ax, sweep_results, param_name):
                         textcoords="offset points", xytext=(0, 6),
                         ha="center", fontsize=8)
 
+def plot_experiment_comparison(ax, sweep_results, param_name):
+    """Horizontal bar chart comparing experiments by compression ratio.
+
+    Used in --compare-experiments mode where param_value is the
+    experiment name rather than a numeric value.
+    """
+    d = _extract(sweep_results)
+    # For experiment comparison, values are strings (experiment names)
+    # so we use them directly as labels rather than converting
+    y = np.arange(len(d["values"]))
+    labels = [str(v) for v in d["values"]]
+
+    ax.barh(y, _safe(d["ratios"]), color="#1baf7a", height=0.5)
+    ax.axvline(1.0, color="gray", linestyle="--", linewidth=1, label="No compression (1.0x)")
+    ax.set_yticks(y); ax.set_yticklabels(labels)
+    ax.set_xlabel("Compression ratio (excl. model)")
+    ax.set_title("Compression ratio by experiment\n(higher = better)")
+    ax.legend(fontsize=8)
+    for i, val in enumerate(d["ratios"]):
+        if val is not None:
+            ax.text(val + 0.01, i, f"{val:.3f}", va="center", fontsize=9)
+
+def plot_experiment_throughput(ax, sweep_results, param_name):
+    """Side-by-side horizontal bars: compress vs decompress throughput by experiment."""
+    d = _extract(sweep_results)
+    y = np.arange(len(d["values"]))
+    labels = [str(v) for v in d["values"]]
+    h = 0.35
+
+    ax.barh(y - h/2, _safe(d["compress_mbps"]),   height=h,
+            color="#4a90d9", label="Compression MB/s")
+    ax.barh(y + h/2, _safe(d["decompress_mbps"]), height=h,
+            color="#e07b39", label="Decompression MB/s")
+    ax.set_yticks(y); ax.set_yticklabels(labels)
+    ax.set_xlabel("Throughput (MB/s)")
+    ax.set_title("Throughput by experiment\n(higher = faster)")
+    ax.legend(); ax.grid(True, alpha=0.3, axis="x")
+
+
+
 
 # ── Plot sets ─────────────────────────────────────────────────────────────────
 # Each is a list of plot functions to use for a given sweep parameter.
@@ -224,10 +268,20 @@ PLOTS_DEFAULT = [
     plot_quality_speed_tradeoff,
 ]
 
+#experiment comparison mode from json
+PLOTS_EXPERIMENT_COMPARISON = [
+    plot_experiment_comparison,
+    plot_experiment_throughput,
+    plot_quality_speed_tradeoff,
+    plot_test_bpp,
+]
+
+
 # Registry — maps param name to its plot set
 PLOT_REGISTRY = {
     "chunks_count": PLOTS_CHUNKS_COUNT,
     "num_layers":   PLOTS_NUM_LAYERS,
     "d_model":      PLOTS_D_MODEL,
     "epochs":       PLOTS_EPOCHS,
+    "experiment": PLOTS_EXPERIMENT_COMPARISON,
 }

@@ -13,6 +13,7 @@ runs one BOA experiment and returns what it measured.
 import subprocess
 import re
 import os
+import json
 import yaml
 
 
@@ -203,3 +204,53 @@ def run_boa(
         f"decompress={metrics.get('decompress_mbps')} MB/s"
     )
     return metrics
+
+
+#if json file is provided then we use it!
+#everything now simplifies since we can simply just load all the json entries and pass it into boa_sweep
+
+def load_runs_json(path: str) -> list:
+    """Load a runs.json file as produced by the new BOA version."""
+    with open(path) as f:
+        return json.load(f)
+
+
+def extract_metrics_from_run(entry: dict) -> dict:
+    """Extract our standard metrics dict from one runs.json entry.
+
+    Maps the new JSON schema to the same keys the rest of the pipeline
+    expects, so boa_sweep.py and boa_plot.py need no changes.
+
+    Args:
+        entry: One top-level entry from runs.json (with 'name', 'training', 'runs').
+
+    Returns:
+        Metrics dict with the same keys as parse_metrics() used to return.
+    """
+    training = entry.get("training") or {}
+    runs = entry.get("runs") or []
+
+    # Pick the most recent GPU run for throughput numbers
+    gpu_runs = [r for r in runs if r.get("engine") in ("gpu", "int-gpu")]
+    latest = max(gpu_runs, key=lambda r: r.get("ts", ""), default={})
+
+    return {
+        "ratio_excl_model":  training.get("ratio"),
+        "ratio_incl_model":  None,          # not in new schema
+        "test_bpp":          training.get("test_bpb"),
+        "final_val_bpp":     None,          # not in new schema
+        "train_time_s":      training.get("wall_min", 0) * 60 if training.get("wall_min") else None,
+        "compress_time_s":   None,          # not directly available
+        "compress_mbps":     latest.get("gpu_enc"),
+        "decompress_time_s": None,
+        "decompress_mbps":   latest.get("gpu_dec"),
+        "compressed_bytes":  None,
+        "model_params":      training.get("params"),
+        # Extra fields from the new schema worth keeping
+        "backbone":          training.get("backbone"),
+        "d_model":           training.get("d_model"),
+        "num_layers":        training.get("num_layers"),
+        "lossless":          latest.get("lossless"),
+        "streams":           latest.get("streams"),
+        "dataset_mib":       training.get("dataset_mib"),
+    }
