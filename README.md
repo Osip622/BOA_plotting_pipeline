@@ -54,3 +54,25 @@ python3 -m pytest BOA_plotting_pipeline/test_boa_sweep.py -v
 ```
 
 No GPU or BOA installation required — all subprocess calls are mocked.
+
+
+## v2 changes
+Three modes now available!
+Mode 1 compares two experiments across several parameters. You need to inut a json that will have all the inputs from BOA v2.
+```
+python3 BOA_plotting_pipeline/boa_sweep.py \
+    --compare-experiments \
+    --runs-json /path/to/runs.json \
+    --compare-params ratio_excl_model decompress_mbps test_bpp
+```
+Mode 2 compares the same experiment of different params taken from the json.
+```
+python3 BOA_plotting_pipeline/boa_sweep.py \
+    --runs-json /path/to/runs.json \
+    --param streams
+```
+Mode 3 keeps the previous functionality of BOA since this is not deprecated and may still be useful.
+```
+python3 BOA_plotting_pipeline/boa_sweep.py \
+    --param chunks_count --values 100 250 500 --compress-only
+```
