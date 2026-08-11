@@ -18,9 +18,11 @@ Default plot sets:
 """
 
 import numpy as np
+import matplotlib.pyplot as plt
 
 def _safe(values: list, default: float = 0.0) -> list:
-    """Replace None with default so matplotlib doesn't crash."""
+    """Replace None with default so matplotlib doesn't crash.
+    In case json is filled with None."""
     return [v if v is not None else default for v in values]
 
 def _try_int_label(v) -> str:
@@ -76,7 +78,8 @@ def plot_throughput(ax, sweep_results, param_name):
     Interesting for chunks_count: more chunks = more parallel GPU streams =
     higher throughput, up to VRAM saturation.
     Decompression throughput is the critical number for HEP — compress once,
-    decompress many times.
+    decompress many times. Does it have an obvious relation with compression
+    throughput?
     """
     d = _extract(sweep_results)
     x = np.arange(len(d["values"]))
@@ -115,13 +118,10 @@ def plot_wallclock_time(ax, sweep_results, param_name):
 
 
 def plot_quality_speed_tradeoff(ax, sweep_results, param_name):
-    """Scatter: compression ratio vs decompression throughput (Pareto tradeoff).
-
-    Top-right = best. The Pareto frontier shows configs where you can't
-    improve ratio without hurting speed, or vice versa.
-    For HEP: decompression throughput on x-axis since data is read many times.
     """
-    import matplotlib.pyplot as plt
+    Scatter: compression ratio vs decompression throughput.
+    """
+    
     d = _extract(sweep_results)
     valid = [(r, dv, v) for r, dv, v in
              zip(d["ratios"], d["decompress_mbps"], d["values"])
@@ -144,7 +144,7 @@ def plot_quality_speed_tradeoff(ax, sweep_results, param_name):
 def plot_test_bpp(ax, sweep_results, param_name):
     """Bar chart of test bpp vs parameter.
 
-    Only populated for full train+compress runs (not --compress-only).
+    Only populated for full train+compress runs (not --compress-only because bpp is a training param).
     Interesting for num_layers, d_model, epochs — shows whether more
     capacity actually improves the model's byte predictions.
     8.0 bpp = random (no compression). Lower = model learned more structure.
@@ -164,8 +164,8 @@ def plot_test_bpp(ax, sweep_results, param_name):
 
 
 def plot_training_time(ax, sweep_results, param_name):
-    """Line chart of training time vs parameter.
-
+    """
+    Line chart of training time vs parameter.
     Only populated for full train+compress runs.
     Useful for num_layers and d_model to show the cost of more capacity.
     """
@@ -186,7 +186,7 @@ def plot_training_time(ax, sweep_results, param_name):
 def plot_experiment_comparison(ax, sweep_results, param_name):
     """Horizontal bar chart comparing experiments by compression ratio.
 
-    Used in --compare-experiments mode where param_value is the
+    Use in --compare-experiments mode where param_value is the
     experiment name rather than a numeric value.
     """
     d = _extract(sweep_results)
@@ -206,7 +206,7 @@ def plot_experiment_comparison(ax, sweep_results, param_name):
             ax.text(val + 0.01, i, f"{val:.3f}", va="center", fontsize=9)
 
 def plot_experiment_throughput(ax, sweep_results, param_name):
-    """Side-by-side horizontal bars: compress vs decompress throughput by experiment."""
+    """compress vs decompress throughput by experiment."""
     d = _extract(sweep_results)
     y = np.arange(len(d["values"]))
     labels = [str(v) for v in d["values"]]
@@ -222,7 +222,78 @@ def plot_experiment_throughput(ax, sweep_results, param_name):
     ax.legend(); ax.grid(True, alpha=0.3, axis="x")
 
 
+# Generic bar plot for all parameters in json
+def _bar(ax, sweep_results, field, ylabel, title, color="#4a90d9", hline=None):
+    """Generic horizontal bar chart for a single absolute metric."""
+    values = [r["metric"].get(field) for r in sweep_results]
+    labels = [str(r["param_value"]) for r in sweep_results]
+    y = np.arange(len(labels))
 
+    ax.barh(y, _safe(values), color=color, height=0.5)
+    ax.set_yticks(y)
+    ax.set_yticklabels(labels, fontsize=8)
+    ax.set_xlabel(ylabel)
+    ax.set_title(title)
+    ax.grid(True, alpha=0.3, axis="x")
+
+    if hline is not None:
+        ax.axvline(hline,color="gray", linestyle="--", linewidth=1)
+    for i, val in enumerate(values):
+        if val is not None:
+            ax.text(val+abs(val)*0.01 if val !=0 else 0.01, i,
+                    f"{val:.3g}", va="center", fontsize=8)
+
+
+# And now a whole set of separate functions for each parameter that can be used with _bar
+def plot_abs_ratio(ax, sweep_results, param_name):
+    _bar(ax, sweep_results, "ratio_excl_model", "Compression ratio",
+         "Compression ratio (excl. model)\n(higher = better)", color="#1baf7a", hline=1.0)
+
+def plot_abs_test_bpp(ax, sweep_results, param_name):
+    _bar(ax, sweep_results, "test_bpp", "Bits per byte",
+         "Test bpp\n(lower = better)", color="#9b59b6", hline=8.0)
+
+def plot_abs_gpu_enc(ax, sweep_results, param_name):
+    _bar(ax, sweep_results, "compress_mbps", "MB/s",
+         "Compression throughput (gpu_enc)\n(higher = faster)", color="#4a90d9")
+
+def plot_abs_gpu_dec(ax, sweep_results, param_name):
+    _bar(ax, sweep_results, "decompress_mbps", "MB/s",
+         "Decompression throughput (gpu_dec)\n(higher = faster)", color="#e07b39")
+
+def plot_abs_params(ax, sweep_results, param_name):
+    _bar(ax, sweep_results, "model_params", "Parameters",
+         "Model parameters", color="#7f8c8d")
+
+def plot_abs_train_time(ax, sweep_results, param_name):
+    _bar(ax, sweep_results, "train_time_s", "Seconds",
+         "Training time (wall_min → seconds)\n(lower = cheaper)", color="#c0392b")
+
+def plot_abs_train_mibs(ax, sweep_results, param_name):
+    _bar(ax, sweep_results, "train_mibs", "MiB/s",
+         "Training throughput (train_mibs)", color="#2980b9")
+
+def plot_abs_dataset_mib(ax, sweep_results, param_name):
+    _bar(ax, sweep_results, "dataset_mib", "MiB",
+         "Dataset size (MiB)", color="#95a5a6")
+
+def plot_abs_streams(ax, sweep_results, param_name):
+    _bar(ax, sweep_results, "streams", "Streams",
+         "GPU streams used", color="#16a085")
+
+def plot_abs_stream_length(ax, sweep_results, param_name):
+    _bar(ax, sweep_results, "stream_length", "Bytes",
+         "Stream length (bytes)", color="#1abc9c")
+
+def plot_abs_d_model(ax, sweep_results, param_name):
+    _bar(ax, sweep_results, "d_model", "d_model",
+         "Model d_model", color="#8e44ad")
+
+def plot_abs_num_layers(ax, sweep_results, param_name):
+    _bar(ax, sweep_results, "num_layers", "Layers",
+         "Number of layers", color="#2c3e50")
+
+            
 
 # ── Plot sets ─────────────────────────────────────────────────────────────────
 # Each is a list of plot functions to use for a given sweep parameter.
@@ -252,7 +323,7 @@ PLOTS_D_MODEL = [
     plot_throughput,
 ]
 
-# epochs: convergence story — does more training actually help?
+# epochs: convergence 
 PLOTS_EPOCHS = [
     plot_test_bpp,
     plot_compression_ratio,
@@ -270,11 +341,21 @@ PLOTS_DEFAULT = [
 
 #experiment comparison mode from json
 PLOTS_EXPERIMENT_COMPARISON = [
-    plot_experiment_comparison,
-    plot_experiment_throughput,
-    plot_quality_speed_tradeoff,
-    plot_test_bpp,
+    plot_abs_ratio,
+    plot_abs_gpu_dec,
+    plot_abs_gpu_enc,
+    plot_abs_test_bpp,
+    plot_abs_train_time,
+    plot_abs_train_mibs,
+    plot_abs_params,
+    plot_abs_streams,
+    plot_abs_stream_length,
+    plot_abs_d_model,
+    plot_abs_num_layers,
+    plot_abs_dataset_mib,
 ]
+
+
 
 
 # Registry — maps param name to its plot set

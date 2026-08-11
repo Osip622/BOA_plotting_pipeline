@@ -253,4 +253,7 @@ def extract_metrics_from_run(entry: dict) -> dict:
         "lossless":          latest.get("lossless"),
         "streams":           latest.get("streams"),
         "dataset_mib":       training.get("dataset_mib"),
+        "train_mibs":        training.get("train_mibs"),
+	"dataset_mib":       training.get("dataset_mib"),
+	"stream_length":     latest.get("stream_length"),
     }
